@@ -3,15 +3,16 @@ package storage
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
+	"time"
+
 	"github.com/GoSeoTaxi/t1/internal/config"
 	"github.com/GoSeoTaxi/t1/internal/models"
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"go.uber.org/zap"
-	"log"
-	"strings"
-	"time"
 )
 
 type PGinterface interface {
@@ -61,17 +62,16 @@ func InitDB(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*PGDB,
 
 	defer tx.Rollback(ctx)
 
-	//Кажется вот тут Илья Сухов имел ввиду добавить recovery
-
-	for _, q := range strings.Split(CreateDB, ";") {
+	/*	for _, q := range strings.Split(CreateDB, ";") {
 		q := strings.TrimSpace(q)
 		if q == "" {
 			continue
 		}
-		if _, err := tx.Exec(ctx, q); err != nil {
-			return nil, fmt.Errorf("failed executing sql: %v", err)
-		}
+	}*/
+	if _, err := tx.Exec(ctx, CreateDB); err != nil {
+		return nil, fmt.Errorf("failed executing sql: %v", err)
 	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit failed: %v", err)
 	}
@@ -86,10 +86,15 @@ func (db *PGDB) CreateNewUser(ctx context.Context, user *models.User) (int, erro
 	defer cancel()
 	err := db.Conn.QueryRow(ctx, `INSERT INTO users (login, password) VALUES($1,$2) RETURNING id;`, user.Login, user.Password).Scan(&user.ID)
 
+	if err != nil && !strings.Contains(err.Error(), "violates") {
+		return 0, fmt.Errorf("insert new user failed: %v", err)
+	}
 	if err != nil && strings.Contains(err.Error(), "violates") {
 		return -1, fmt.Errorf("user already exists: %v", err)
-	} else if err != nil {
-		return 0, fmt.Errorf("insert new user failed: %v", err)
+	} else {
+		if err != nil {
+			return 0, fmt.Errorf("insert new user failed: %v", err)
+		}
 	}
 
 	return 1, nil
